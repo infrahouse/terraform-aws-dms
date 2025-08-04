@@ -1,41 +1,42 @@
 ### Migration
-data "aws_secretsmanager_secret" "source_admin" {
-  arn = data.aws_db_instance.source.master_user_secret[0]["secret_arn"]
-}
-
-data "aws_secretsmanager_secret_version" "source_admin" {
-  secret_id = data.aws_secretsmanager_secret.source_admin.id
-}
-
-data "aws_secretsmanager_secret" "target_admin" {
-  arn = data.aws_db_instance.target.master_user_secret[0]["secret_arn"]
-}
-
-data "aws_secretsmanager_secret_version" "target_admin" {
-  secret_id = data.aws_secretsmanager_secret.target_admin.id
-}
-
+# data "aws_secretsmanager_secret" "source_admin" {
+#   arn = data.aws_db_instance.source.master_user_secret[0]["secret_arn"]
+# }
+#
+# data "aws_secretsmanager_secret_version" "source_admin" {
+#   secret_id = data.aws_secretsmanager_secret.source_admin.id
+# }
+#
+# data "aws_secretsmanager_secret" "target_admin" {
+#   arn = data.aws_db_instance.target.master_user_secret[0]["secret_arn"]
+# }
+#
+# data "aws_secretsmanager_secret_version" "target_admin" {
+#   secret_id = data.aws_secretsmanager_secret.target_admin.id
+# }
+#
 resource "aws_dms_endpoint" "source" {
   endpoint_id   = "source"
   endpoint_type = "source"
-  engine_name   = data.aws_db_instance.source.engine
-  username      = jsondecode(data.aws_secretsmanager_secret_version.source_admin.secret_string)["username"]
-  password      = jsondecode(data.aws_secretsmanager_secret_version.source_admin.secret_string)["password"]
-  server_name   = data.aws_db_instance.source.address
-  port          = data.aws_db_instance.source.port
-  database_name = data.aws_db_instance.source.db_name
+  engine_name   = data.aws_rds_cluster.source.engine
+  username      = var.source_username
+  password      = var.source_password
+  server_name   = data.aws_rds_cluster.source.endpoint
+  port          = data.aws_rds_cluster.source.port
+  database_name = data.aws_rds_cluster.source.database_name
 }
 
 
 resource "aws_dms_endpoint" "target" {
-  endpoint_id                 = "targeted"
-  endpoint_type               = "target"
-  engine_name                 = data.aws_db_instance.target.engine
-  username                    = jsondecode(data.aws_secretsmanager_secret_version.target_admin.secret_string)["username"]
-  password                    = jsondecode(data.aws_secretsmanager_secret_version.target_admin.secret_string)["password"]
-  server_name                 = data.aws_db_instance.target.address
-  port                        = data.aws_db_instance.target.port
-  extra_connection_attributes = "Initstmt=SET FOREIGN_KEY_CHECKS=0;"
+  endpoint_id   = "target"
+  endpoint_type = "target"
+  engine_name   = data.aws_rds_cluster.target.engine
+  username      = var.target_username
+  password      = var.target_password
+  server_name   = data.aws_rds_cluster.target.endpoint
+  port          = data.aws_rds_cluster.target.port
+  database_name = data.aws_rds_cluster.target.database_name
+  # extra_connection_attributes = "Initstmt=SET FOREIGN_KEY_CHECKS=0;"
 
 }
 
@@ -51,9 +52,11 @@ locals {
 
 resource "aws_dms_replication_instance" "dms" {
   replication_instance_class  = "dms.c5.4xlarge"
+  engine_version              = "3.6.1"
   replication_instance_id     = local.dms_instance_id
-  vpc_security_group_ids      = data.aws_db_instance.source.vpc_security_groups
+  vpc_security_group_ids      = data.aws_rds_cluster.source.vpc_security_group_ids
   replication_subnet_group_id = aws_dms_replication_subnet_group.dms.id
+  allow_major_version_upgrade = true
   depends_on = [
     aws_iam_role_policy_attachment.dms-access-for-endpoint-AmazonDMSRedshiftS3Role,
     aws_iam_role_policy_attachment.dms-cloudwatch-logs-role-AmazonDMSCloudWatchLogsRole,
@@ -77,7 +80,7 @@ resource "aws_dms_replication_task" "dms" {
           rule-id : 1,
           rule-name : "1",
           object-locator : {
-            schema-name : data.aws_db_instance.source.engine == "postgres" ? "public" : data.aws_db_instance.source.db_name,
+            schema-name : contains(["postgres", "aurora-postgresql"], data.aws_rds_cluster.source.engine) ? "public" : data.aws_rds_cluster.source.database_name,
             table-name : "%"
           },
           rule-action : "include"

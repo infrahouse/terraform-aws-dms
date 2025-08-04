@@ -1,0 +1,56 @@
+---
+name: 'Terraform CD'
+
+on:  # yamllint disable-line rule:truthy
+  push:
+    # Pattern matched against refs/tags
+    tags:
+      - "*"
+
+permissions:
+  id-token: write  # This is required for requesting the JWT
+  contents: read
+
+concurrency:
+  group: aws-control
+  cancel-in-progress: false
+
+env:
+  ROLE_ARN: "arn:aws:iam::493370826424:role/ih-tf-terraform-aws-dms-github"
+  AWS_DEFAULT_REGION: "us-west-1"
+
+jobs:
+  publish:
+    name: 'Publish Module'
+    runs-on: ["self-hosted", "Linux", "noble"]
+    environment: production
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      # Checkout the repository to the GitHub Actions runner
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          role-session-name: github-actions
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Prepare Python environment
+      - name: Setup Python Environment
+        run: make bootstrap
+
+      # Publish the module
+      - name: Publish module
+        run: |
+          ih-registry upload
