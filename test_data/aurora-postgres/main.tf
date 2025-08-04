@@ -44,10 +44,18 @@ resource "aws_rds_cluster_parameter_group" "aurora_pg" {
   family      = "aurora-postgresql${local.engine_version}"
   description = "Custom parameter group"
 
-  parameter {
-    apply_method = "pending-reboot"
-    name         = "rds.force_ssl"
-    value        = "0"
+  dynamic "parameter" {
+    for_each = {
+      "rds.force_ssl" : "0"
+      "rds.logical_replication" : "1"
+      "max_replication_slots" : "10"
+      "max_wal_senders" : "10"
+    }
+    content {
+      name         = parameter.key
+      value        = parameter.value
+      apply_method = "pending-reboot"
+    }
   }
   lifecycle {
     create_before_destroy = true
